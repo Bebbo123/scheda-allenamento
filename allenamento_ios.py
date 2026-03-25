@@ -108,14 +108,14 @@ if timer["active"]:
         timer["active"] = False
 
 # -----------------------
-# UI ESERCIZI
+# UI ESERCIZI (ACCORPATI)
 # -----------------------
 for esercizio in filtered["Esercizio"].unique():
 
     blocco = filtered[filtered["Esercizio"] == esercizio]
     recupero = int(blocco["Recupero (sec)"].iloc[0])
 
-    with st.expander(f"🏋️ {esercizio}", expanded=True):
+    with st.expander(f"🏋️ {esercizio}", expanded=False):
 
         # NOTE COACH
         note_coach = blocco["Note Coach"].dropna()
@@ -136,51 +136,66 @@ for esercizio in filtered["Esercizio"].unique():
 
         st.divider()
 
+        # HEADER TABELLA (stile app)
+        h1, h2, h3, h4, h5 = st.columns([1, 1, 1, 1, 1])
+        h1.write("Serie")
+        h2.write("Reps")
+        h3.write("Kg")
+        h4.write("RPE")
+        h5.write("✔")
+
         # SERIE
         for idx, row in blocco.iterrows():
 
-            st.markdown(f"### Serie {int(row['Serie'])}")
+            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1])
 
-            st.write(
-                f"🎯 Target: {int(row['Reps Target'])} reps @ {row['Carico Target']} kg"
-            )
+            with c1:
+                st.write(f"{int(row['Serie'])}")
 
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
+            with c2:
                 reps = st.number_input(
                     "Reps",
                     value=int(row["Reps Effettive"]) if pd.notna(row["Reps Effettive"]) else 0,
-                    key=f"reps_{idx}"
+                    key=f"reps_{idx}",
+                    label_visibility="collapsed"
                 )
 
-            with col2:
+            with c3:
                 carico = st.number_input(
-                    "Carico Effettivo",
+                    "Kg",
                     value=float(row["Carico"]) if pd.notna(row["Carico"]) else 0.0,
                     step=2.5,
-                    key=f"carico_{idx}"
+                    key=f"carico_{idx}",
+                    label_visibility="collapsed"
                 )
 
-            with col3:
+            with c4:
                 rpe = st.number_input(
                     "RPE",
                     min_value=1,
                     max_value=10,
                     value=int(row["RPE"]) if pd.notna(row["RPE"]) else 6,
-                    key=f"rpe_{idx}"
+                    key=f"rpe_{idx}",
+                    label_visibility="collapsed"
                 )
 
+            with c5:
+                done = st.checkbox(
+                    "",
+                    value=row["Stato"] == "Completata",
+                    key=f"done_{idx}"
+                )
+
+            # TARGET INFO
+            st.caption(
+                f"🎯 {int(row['Reps Target'])} reps @ {row['Carico Target']} kg"
+            )
+
+            # NOTE
             note = st.text_input(
                 "Note",
                 value=str(row["Note Personali"]) if pd.notna(row["Note Personali"]) else "",
                 key=f"note_{idx}"
-            )
-
-            done = st.checkbox(
-                "Completata",
-                value=row["Stato"] == "Completata",
-                key=f"done_{idx}"
             )
 
             # SALVATAGGIO
@@ -191,9 +206,9 @@ for esercizio in filtered["Esercizio"].unique():
             data.loc[idx, "Stato"] = "Completata" if done else ""
 
             if done:
-                st.success("✔ Serie completata")
+                st.success("✔")
 
-            st.divider()
+        st.divider()
 
 # -----------------------
 # EXPORT
