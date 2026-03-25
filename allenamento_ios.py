@@ -213,3 +213,4 @@ st.download_button(
     file_name=nome_file,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
+ 
