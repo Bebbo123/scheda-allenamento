@@ -21,6 +21,15 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------
+# SAFE FUNCTIONS (ANTI-CRASH)
+# -----------------------
+def safe_int(val, default=0):
+    return int(val) if pd.notna(val) else default
+
+def safe_float(val, default=0.0):
+    return float(val) if pd.notna(val) else default
+
+# -----------------------
 # LOAD EXCEL
 # -----------------------
 @st.cache_data
@@ -48,6 +57,7 @@ required_columns = [
 
 if not all(col in df.columns for col in required_columns):
     st.error("⚠️ Il file Excel non è corretto")
+    st.write(required_columns)
     st.stop()
 
 # -----------------------
@@ -72,7 +82,10 @@ timer = st.session_state.timer
 # -----------------------
 st.sidebar.header("Navigazione")
 
-settimana = st.sidebar.selectbox("Settimana", sorted(data["Settimana"].dropna().unique()))
+settimana = st.sidebar.selectbox(
+    "Settimana",
+    sorted(data["Settimana"].dropna().unique())
+)
 
 giorno = st.sidebar.selectbox(
     "Giorno",
@@ -101,12 +114,12 @@ if timer["active"]:
         timer["active"] = False
 
 # -----------------------
-# UI ESERCIZI (MOBILE)
+# UI ESERCIZI
 # -----------------------
 for esercizio in filtered["Esercizio"].unique():
 
     blocco = filtered[filtered["Esercizio"] == esercizio]
-    recupero = int(blocco["Recupero (sec)"].iloc[0])
+    recupero = safe_int(blocco["Recupero (sec)"].iloc[0])
 
     with st.expander(f"🏋️ {esercizio}"):
 
@@ -127,32 +140,55 @@ for esercizio in filtered["Esercizio"].unique():
 
         for idx, row in blocco.iterrows():
 
-            st.markdown(f"### 🔹 Serie {int(row['Serie'])}")
-            st.caption(f"🎯 {row['Reps Target']} reps @ {row['Carico Target']} kg")
+            st.markdown(f"### 🔹 Serie {safe_int(row['Serie'])}")
+            st.caption(f"🎯 {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg")
 
-            reps = st.number_input("Reps", value=int(row["Reps Effettive"] or 0), key=f"r{idx}")
-            carico = st.number_input("Kg", value=float(row["Carico"] or 0), key=f"c{idx}")
-            rpe = st.number_input("RPE", min_value=1, max_value=10, value=int(row["RPE"] or 6), key=f"p{idx}")
+            reps = st.number_input(
+                "Reps",
+                value=safe_int(row["Reps Effettive"]),
+                key=f"r{idx}"
+            )
+
+            carico = st.number_input(
+                "Kg",
+                value=safe_float(row["Carico"]),
+                key=f"c{idx}"
+            )
+
+            rpe = st.number_input(
+                "RPE",
+                min_value=1,
+                max_value=10,
+                value=safe_int(row["RPE"], 6),
+                key=f"p{idx}"
+            )
+
+            note = st.text_input(
+                "Note",
+                value=str(row["Note Personali"]) if pd.notna(row["Note Personali"]) else "",
+                key=f"note{idx}"
+            )
 
             done = st.checkbox("✔ Serie completata", key=f"d{idx}")
 
-            # SALVATAGGIO LOCALE
+            # SAVE LOCALE
             data.loc[idx, "Reps Effettive"] = reps
             data.loc[idx, "Carico"] = carico
             data.loc[idx, "RPE"] = rpe
+            data.loc[idx, "Note Personali"] = note
             data.loc[idx, "Stato"] = "Completata" if done else ""
 
-            # SALVATAGGIO CLOUD
+            # SAVE CLOUD
             if done:
                 supabase.table("workouts").insert({
                     "esercizio": esercizio,
-                    "settimana": int(row["Settimana"]),
+                    "settimana": safe_int(row["Settimana"]),
                     "giorno": row["Giorno"],
-                    "serie": int(row["Serie"]),
+                    "serie": safe_int(row["Serie"]),
                     "carico": float(carico),
                     "reps": int(reps),
                     "rpe": int(rpe),
-                    "carico_target": float(row["Carico Target"])
+                    "carico_target": safe_float(row["Carico Target"])
                 }).execute()
 
                 st.success("☁️ Salvato nel cloud")
@@ -184,7 +220,10 @@ if data_db:
 
     df_db = pd.DataFrame(data_db)
 
-    esercizio_sel = st.selectbox("Seleziona esercizio", df_db["esercizio"].unique())
+    esercizio_sel = st.selectbox(
+        "Seleziona esercizio",
+        df_db["esercizio"].unique()
+    )
 
     if st.button("📈 Mostra Dashboard"):
 
@@ -208,13 +247,12 @@ if data_db:
         st.markdown("### 📊 Carico per serie")
         st.line_chart(df_es.groupby(["settimana", "serie"])["carico"].mean().unstack())
 
-        # TARGET VS REALE
+        # TARGET vs REALE
         if "carico_target" in df_es.columns:
 
             st.markdown("### 🎯 Target vs Reale")
 
             confronto = df_es.groupby("settimana")[["carico", "carico_target"]].mean()
-
             st.line_chart(confronto)
 
             last = confronto.iloc[-1]
@@ -226,6 +264,7 @@ if data_db:
 
         # BEST SET
         st.markdown("### 🏆 Best Set")
+
         best = df_es.sort_values("carico", ascending=False).iloc[0]
 
         st.success(
