@@ -74,7 +74,7 @@ if uploaded_file:
 
         supabase.table("schede").insert({
             "nome": uploaded_file.name,
-            "dati": clean_df.to_dict(),
+            "dati": clean_df.to_dict(orient="records"),  # 🔥 FIX IMPORTANTE
             "utente_id": user_id
         }).execute()
 
@@ -125,10 +125,23 @@ if st.sidebar.button("🗑️ Elimina scheda"):
     st.rerun()
 
 # -----------------------
-# CARICA SCHEDA (FIX KEYERROR)
+# CARICA SCHEDA (FIX)
 # -----------------------
-df = pd.DataFrame.from_dict(scheda_sel["dati"])
-df = df.reset_index(drop=True)
+df = pd.DataFrame(scheda_sel["dati"])  # 🔥 FIX DEFINITIVO
+
+# -----------------------
+# VALIDAZIONE COLONNE
+# -----------------------
+required_columns = [
+    "Giorno", "Settimana", "Esercizio",
+    "Serie", "Reps Target", "Carico Target"
+]
+
+missing = [c for c in required_columns if c not in df.columns]
+
+if missing:
+    st.error(f"⚠️ Excel non valido. Mancano colonne: {missing}")
+    st.stop()
 
 # -----------------------
 # NAVIGAZIONE
@@ -181,7 +194,7 @@ for idx, row in filtered.iterrows():
     saved = df_work[
         (df_work["esercizio"] == row["Esercizio"]) &
         (df_work["serie"] == row["Serie"])
-    ]
+    ] if not df_work.empty else pd.DataFrame()
 
     reps_default = safe_int(saved["reps"].iloc[0]) if not saved.empty else 0
     carico_default = safe_float(saved["carico"].iloc[0]) if not saved.empty else 0
