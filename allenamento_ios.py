@@ -28,6 +28,31 @@ def safe_float(val, default=0.0):
     return float(val) if pd.notna(val) else default
 
 # -----------------------
+# LOGIN
+# -----------------------
+st.subheader("🔐 Login")
+
+if "user" not in st.session_state:
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        try:
+            user = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+            st.session_state.user = user
+            st.success("Login effettuato")
+            st.rerun()
+        except:
+            st.error("Errore login")
+
+    st.stop()
+
+user_id = st.session_state.user.user.id
+
+# -----------------------
 # GESTIONE SCHEDE
 # -----------------------
 st.subheader("📂 Gestione Schede")
@@ -38,14 +63,15 @@ if uploaded_file:
     df_new = pd.read_excel(uploaded_file)
 
     if st.button("Salva nuova scheda"):
-        # disattiva tutte
-        supabase.table("schede").update({"attiva": False}).neq("id", "").execute()
+        # disattiva tutte le schede dell'utente
+        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
 
-        # salva nuova
+        # salva nuova scheda
         supabase.table("schede").insert({
             "nome": uploaded_file.name,
             "dati": df_new.to_dict(),
-            "attiva": True
+            "attiva": True,
+            "utente_id": user_id
         }).execute()
 
         st.success("✅ Scheda salvata e attiva")
@@ -54,7 +80,10 @@ if uploaded_file:
 # -----------------------
 # SWITCH SCHEDE
 # -----------------------
-schede = supabase.table("schede").select("id,nome").execute().data
+schede = supabase.table("schede") \
+    .select("id,nome") \
+    .eq("utente_id", user_id) \
+    .execute().data
 
 if schede:
     scheda_sel = st.sidebar.selectbox(
@@ -64,20 +93,28 @@ if schede:
     )
 
     if st.sidebar.button("Attiva scheda"):
-        supabase.table("schede").update({"attiva": False}).neq("id", "").execute()
+        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
         supabase.table("schede").update({"attiva": True}).eq("id", scheda_sel["id"]).execute()
         st.rerun()
 
 # -----------------------
 # CARICA SCHEDA ATTIVA
 # -----------------------
-res = supabase.table("schede").select("*").eq("attiva", True).limit(1).execute()
+res = supabase.table("schede") \
+    .select("*") \
+    .eq("attiva", True) \
+    .eq("utente_id", user_id) \
+    .limit(1) \
+    .execute()
 
 if not res.data:
     st.warning("Carica una scheda per iniziare")
     st.stop()
 
 df = pd.DataFrame(res.data[0]["dati"])
+
+# aggiorna session state
+st.session_state.data = df.copy()
 
 # -----------------------
 # VALIDAZIONE
@@ -97,9 +134,6 @@ if not all(col in df.columns for col in required_columns):
 # -----------------------
 # STATE
 # -----------------------
-if "data" not in st.session_state:
-    st.session_state.data = df.copy()
-
 if "timer" not in st.session_state:
     st.session_state.timer = {"active": False, "start": 0, "duration": 0, "exercise": ""}
 
@@ -172,17 +206,25 @@ for esercizio in filtered["Esercizio"].unique():
             carico = st.number_input("Kg", value=safe_float(row["Carico"]), key=f"c{idx}")
             rpe = st.number_input("RPE", min_value=1, max_value=10, value=safe_int(row["RPE"], 6), key=f"p{idx}")
 
+            note = st.text_input(
+                "Note",
+                value=str(row["Note Personali"]) if pd.notna(row["Note Personali"]) else "",
+                key=f"note{idx}"
+            )
+
             done = st.checkbox("✔ Completata", key=f"d{idx}")
 
             # salva locale
             data.loc[idx, "Reps Effettive"] = reps
             data.loc[idx, "Carico"] = carico
             data.loc[idx, "RPE"] = rpe
+            data.loc[idx, "Note Personali"] = note
             data.loc[idx, "Stato"] = "Completata" if done else ""
 
             # salva cloud
             if done:
                 supabase.table("workouts").insert({
+                    "utente_id": user_id,
                     "esercizio": esercizio,
                     "settimana": safe_int(row["Settimana"]),
                     "giorno": row["Giorno"],
@@ -216,7 +258,10 @@ st.download_button("⬇️ Esporta", buffer, nome_file)
 # -----------------------
 st.subheader("📊 Dashboard")
 
-data_db = supabase.table("workouts").select("*").execute().data
+data_db = supabase.table("workouts") \
+    .select("*") \
+    .eq("utente_id", user_id) \
+    .execute().data
 
 if data_db:
 
