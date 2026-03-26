@@ -51,8 +51,7 @@ if "user" not in st.session_state:
     st.stop()
 
 user_id = st.session_state.user.user.id
-
-st.success(f"👤 Loggato")
+st.success("👤 Loggato")
 
 # -----------------------
 # GESTIONE SCHEDE
@@ -67,23 +66,24 @@ if uploaded_file:
     if st.button("💾 Salva nuova scheda"):
 
         try:
-            # disattiva vecchie
+            # 🔥 FIX NaN
+            clean_df = df_new.fillna("")
+
+            # disattiva schede utente
             supabase.table("schede") \
                 .update({"attiva": False}) \
                 .eq("utente_id", user_id) \
                 .execute()
 
-            # inserisci nuova
+            # salva scheda
             res_insert = supabase.table("schede").insert({
                 "nome": uploaded_file.name,
-                "dati": df_new.to_dict(),
+                "dati": clean_df.to_dict(),
                 "attiva": True,
                 "utente_id": user_id
             }).execute()
 
             st.success("✅ Scheda salvata!")
-
-            # DEBUG
             st.write("DEBUG INSERT:", res_insert.data)
 
             st.rerun()
@@ -120,7 +120,6 @@ res = supabase.table("schede") \
     .eq("attiva", True) \
     .execute()
 
-# DEBUG
 st.write("DEBUG SCHEDE:", res.data)
 
 if not res.data:
@@ -146,13 +145,26 @@ if not all(col in df.columns for col in required_columns):
     st.stop()
 
 # -----------------------
-# TIMER STATE
+# TIMER
 # -----------------------
 if "timer" not in st.session_state:
     st.session_state.timer = {"active": False, "start": 0, "duration": 0, "exercise": ""}
 
 data = st.session_state.data
 timer = st.session_state.timer
+
+if timer["active"]:
+    elapsed = time.time() - timer["start"]
+    remaining = int(timer["duration"] - elapsed)
+
+    if remaining > 0:
+        st.warning(f"⏳ {timer['exercise']} - {remaining}s")
+        st.progress(elapsed / timer["duration"])
+        time.sleep(1)
+        st.rerun()
+    else:
+        st.success("✅ Recupero finito!")
+        timer["active"] = False
 
 # -----------------------
 # NAVIGAZIONE
@@ -169,22 +181,6 @@ filtered = data[
     (data["Settimana"] == settimana) &
     (data["Giorno"] == giorno)
 ]
-
-# -----------------------
-# TIMER
-# -----------------------
-if timer["active"]:
-    elapsed = time.time() - timer["start"]
-    remaining = int(timer["duration"] - elapsed)
-
-    if remaining > 0:
-        st.warning(f"⏳ {timer['exercise']} - {remaining}s")
-        st.progress(elapsed / timer["duration"])
-        time.sleep(1)
-        st.rerun()
-    else:
-        st.success("✅ Recupero finito!")
-        timer["active"] = False
 
 # -----------------------
 # UI ESERCIZI
