@@ -162,7 +162,7 @@ for idx, row in filtered.iterrows():
 
     st.markdown(f"## 🏋️ {row['Esercizio']} - Serie {row['Serie']}")
 
-    # DATI PT
+    # PT INFO
     st.markdown(
         f"🎯 {safe_int(row['Reps Target'])} reps @ {clean_float(row['Carico Target'])} kg"
     )
@@ -178,17 +178,34 @@ for idx, row in filtered.iterrows():
         (df_work["serie"] == row["Serie"])
     ] if not df_work.empty else pd.DataFrame()
 
-    reps_default = safe_int(saved["reps"].iloc[0]) if not saved.empty else 0
-    carico_default = clean_float(saved["carico"].iloc[0]) if not saved.empty else 0
-    rpe_default = safe_int(saved["rpe"].iloc[0], 6) if not saved.empty else 6
+    reps_default = int(safe_int(saved["reps"].iloc[0])) if not saved.empty else 0
+    carico_default = float(clean_float(saved["carico"].iloc[0])) if not saved.empty else 0.0
+    rpe_default = int(safe_int(saved["rpe"].iloc[0], 6)) if not saved.empty else 6
     note_default = saved["note"].iloc[0] if not saved.empty and "note" in saved else ""
 
-    # INPUT
-    reps = st.number_input("Reps", value=reps_default, key=f"r{idx}")
-    carico = st.number_input("Kg", value=carico_default, step=0.5, format="%.2f", key=f"c{idx}")
-    rpe = st.number_input("RPE", value=rpe_default, min_value=1, max_value=10, key=f"p{idx}")
+    # INPUT (TIPI COERENTI)
+    reps = st.number_input("Reps", value=int(reps_default), step=1, key=f"r{idx}")
+
+    carico = st.number_input(
+        "Kg",
+        value=float(carico_default),
+        step=float(0.5),
+        format="%.2f",
+        key=f"c{idx}"
+    )
+
+    rpe = st.number_input(
+        "RPE",
+        value=int(rpe_default),
+        min_value=1,
+        max_value=10,
+        step=1,
+        key=f"p{idx}"
+    )
+
     note = st.text_input("Note Personali", value=note_default, key=f"n{idx}")
 
+    # SALVA
     if st.button("✔ Salva Serie", key=f"s{idx}"):
 
         try:
@@ -196,8 +213,8 @@ for idx, row in filtered.iterrows():
                 "utente_id": user_id,
                 "scheda_id": scheda_id,
                 "esercizio": row["Esercizio"],
-                "serie": safe_int(row["Serie"]),
-                "settimana": safe_int(row["Settimana"]),
+                "serie": int(safe_int(row["Serie"])),
+                "settimana": int(safe_int(row["Settimana"])),
                 "giorno": row["Giorno"],
                 "reps": int(reps),
                 "carico": float(clean_float(carico)),
