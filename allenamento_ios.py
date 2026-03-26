@@ -4,16 +4,58 @@ from io import BytesIO
 from datetime import datetime
 from supabase import create_client
 
-# CONFIG
-st.set_page_config(page_title="Scheda Allenamento", layout="centered")
+# -----------------------
+# CONFIG MOBILE APP STYLE
+# -----------------------
+st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
+
+# 🔥 MIGLIORIA MOBILE
+st.markdown(
+    """
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+    /* bottoni più grandi */
+    div.stButton > button {
+        width: 100%;
+        height: 50px;
+        font-size: 18px;
+        border-radius: 10px;
+    }
+
+    /* input più grandi */
+    input {
+        font-size: 18px !important;
+    }
+
+    /* checkbox più grandi */
+    div[data-baseweb="checkbox"] {
+        transform: scale(1.3);
+    }
+
+    /* padding mobile */
+    .block-container {
+        padding-top: 1rem;
+        padding-bottom: 2rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 st.title("🏋️ Scheda Allenamento")
 
+# -----------------------
 # SUPABASE
+# -----------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# SAFE
+# -----------------------
+# SAFE FUNCTIONS
+# -----------------------
 def safe_int(val, default=0):
     try:
         if pd.isna(val) or val == "":
@@ -35,9 +77,12 @@ def safe_str(val):
         return ""
     return str(val)
 
+# -----------------------
 # LOGIN
+# -----------------------
 if "user" not in st.session_state:
     st.subheader("🔐 Login")
+
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
 
@@ -87,16 +132,21 @@ if not schede:
     st.warning("Carica una scheda")
     st.stop()
 
-scheda_sel = st.sidebar.selectbox("Scheda", schede, format_func=lambda x: x["nome"])
+scheda_sel = st.selectbox("📋 Scheda", schede, format_func=lambda x: x["nome"])
 scheda_id = scheda_sel["id"]
 
 df = pd.DataFrame(scheda_sel["dati"])
 
 # -----------------------
-# NAVIGAZIONE
+# NAVIGAZIONE MOBILE
 # -----------------------
-settimana = st.sidebar.selectbox("Settimana", sorted(df["Settimana"].unique()))
-giorno = st.sidebar.selectbox("Giorno", sorted(df["Giorno"].unique()))
+col1, col2 = st.columns(2)
+
+with col1:
+    settimana = st.selectbox("Settimana", sorted(df["Settimana"].unique()))
+
+with col2:
+    giorno = st.selectbox("Giorno", sorted(df["Giorno"].unique()))
 
 filtered = df[
     (df["Settimana"] == settimana) &
@@ -115,23 +165,21 @@ workouts = supabase.table("workouts") \
 df_work = pd.DataFrame(workouts) if workouts else pd.DataFrame()
 
 # -----------------------
-# UI ESERCIZI (FIX PT)
+# UI ESERCIZI MOBILE
 # -----------------------
 for idx, row in filtered.iterrows():
 
-    st.subheader(f"{row['Esercizio']} - Serie {row['Serie']}")
+    st.markdown(f"## 🏋️ {row['Esercizio']}")
 
-    # 🔥 DATI PT
     st.markdown(
-        f"🎯 **Target:** {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg"
+        f"🎯 {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg"
     )
 
     if safe_str(row["Note Coach"]):
-        st.info(f"🧠 Coach: {safe_str(row['Note Coach'])}")
+        st.info(f"🧠 {row['Note Coach']}")
 
-    st.write(f"⏱ Recupero: {safe_int(row['Recupero (sec)'])} sec")
+    st.caption(f"⏱ Recupero: {safe_int(row['Recupero (sec)'])} sec")
 
-    # 🔥 VALORI SALVATI
     saved = df_work[
         (df_work["esercizio"] == row["Esercizio"]) &
         (df_work["serie"] == row["Serie"])
@@ -140,17 +188,13 @@ for idx, row in filtered.iterrows():
     reps_default = safe_int(saved["reps"].iloc[0]) if not saved.empty else 0
     carico_default = safe_float(saved["carico"].iloc[0]) if not saved.empty else 0
     rpe_default = safe_int(saved["rpe"].iloc[0], 6) if not saved.empty else 6
-    note_default = safe_str(saved["note"].iloc[0]) if not saved.empty and "note" in saved else ""
 
-    # 🔥 INPUT UTENTE
-    reps = st.number_input("Reps Effettive", value=reps_default, key=f"r{idx}")
-    carico = st.number_input("Carico (kg)", value=carico_default, key=f"c{idx}")
+    reps = st.number_input("Reps", value=reps_default, key=f"r{idx}")
+    carico = st.number_input("Kg", value=carico_default, key=f"c{idx}")
     rpe = st.number_input("RPE", value=rpe_default, key=f"p{idx}")
-    note = st.text_input("Note Personali", value=note_default, key=f"n{idx}")
 
     done = st.checkbox("✔ Completata", key=f"d{idx}")
 
-    # SALVA
     if done:
         supabase.table("workouts").insert({
             "utente_id": user_id,
@@ -161,13 +205,12 @@ for idx, row in filtered.iterrows():
             "giorno": row["Giorno"],
             "reps": reps,
             "carico": carico,
-            "rpe": rpe,
-            "note": note
+            "rpe": rpe
         }).execute()
 
-        st.success("Salvato")
+        st.success("Salvato 💪")
 
-    st.markdown("---")
+    st.divider()
 
 # -----------------------
 # EXPORT
