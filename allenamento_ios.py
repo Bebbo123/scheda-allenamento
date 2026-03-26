@@ -19,13 +19,23 @@ SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------
-# SAFE FUNCTIONS
+# SAFE FUNCTIONS SUPER ROBUSTE
 # -----------------------
 def safe_int(val, default=0):
-    return int(val) if pd.notna(val) else default
+    try:
+        if val in ["", None]:
+            return default
+        return int(float(val))
+    except:
+        return default
 
 def safe_float(val, default=0.0):
-    return float(val) if pd.notna(val) else default
+    try:
+        if val in ["", None]:
+            return default
+        return float(val)
+    except:
+        return default
 
 # -----------------------
 # LOGIN
@@ -66,16 +76,13 @@ if uploaded_file:
     if st.button("💾 Salva nuova scheda"):
 
         try:
-            # 🔥 FIX NaN
             clean_df = df_new.fillna("")
 
-            # disattiva schede utente
             supabase.table("schede") \
                 .update({"attiva": False}) \
                 .eq("utente_id", user_id) \
                 .execute()
 
-            # salva scheda
             res_insert = supabase.table("schede").insert({
                 "nome": uploaded_file.name,
                 "dati": clean_df.to_dict(),
@@ -84,8 +91,6 @@ if uploaded_file:
             }).execute()
 
             st.success("✅ Scheda salvata!")
-            st.write("DEBUG INSERT:", res_insert.data)
-
             st.rerun()
 
         except Exception as e:
@@ -120,29 +125,12 @@ res = supabase.table("schede") \
     .eq("attiva", True) \
     .execute()
 
-st.write("DEBUG SCHEDE:", res.data)
-
 if not res.data:
-    st.warning("⚠️ Nessuna scheda trovata — salva una scheda sopra")
+    st.warning("⚠️ Nessuna scheda trovata")
     st.stop()
 
 df = pd.DataFrame(res.data[0]["dati"])
 st.session_state.data = df.copy()
-
-# -----------------------
-# VALIDAZIONE
-# -----------------------
-required_columns = [
-    "Giorno", "Settimana", "Esercizio", "Note Coach",
-    "Recupero (sec)",
-    "Serie", "Reps Target", "Carico Target",
-    "Reps Effettive", "Carico",
-    "RPE", "Note Personali", "Stato"
-]
-
-if not all(col in df.columns for col in required_columns):
-    st.error("⚠️ Excel non valido")
-    st.stop()
 
 # -----------------------
 # TIMER
