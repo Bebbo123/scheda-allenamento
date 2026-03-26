@@ -4,22 +4,16 @@ from io import BytesIO
 from datetime import datetime
 from supabase import create_client
 
-# -----------------------
 # CONFIG
-# -----------------------
-st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
+st.set_page_config(page_title="Scheda Allenamento", layout="centered")
 st.title("🏋️ Scheda Allenamento")
 
-# -----------------------
 # SUPABASE
-# -----------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# -----------------------
-# SAFE FUNCTIONS
-# -----------------------
+# SAFE
 def safe_int(val, default=0):
     try:
         if val in ["", None]:
@@ -36,105 +30,50 @@ def safe_float(val, default=0.0):
     except:
         return default
 
-# -----------------------
 # LOGIN
-# -----------------------
-st.subheader("🔐 Login")
-
 if "user" not in st.session_state:
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        try:
-            user = supabase.auth.sign_in_with_password({
-                "email": email,
-                "password": password
-            })
-            st.session_state.user = user
-            st.rerun()
-        except:
-            st.error("Errore login")
+        user = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+        st.session_state.user = user
+        st.rerun()
 
     st.stop()
 
 user_id = st.session_state.user.user.id
 
 # -----------------------
-# UPLOAD SCHEDA
-# -----------------------
-st.subheader("📂 Carica Scheda")
-
-uploaded_file = st.file_uploader("Carica Excel", type=["xlsx"])
-
-if uploaded_file:
-    df_new = pd.read_excel(uploaded_file)
-
-    if st.button("💾 Salva Scheda"):
-
-        clean_df = df_new.fillna("")
-
-        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
-
-        supabase.table("schede").insert({
-            "nome": uploaded_file.name,
-            "dati": clean_df.to_dict(),
-            "attiva": True,
-            "utente_id": user_id
-        }).execute()
-
-        st.success("Scheda salvata!")
-        st.rerun()
-
-# -----------------------
-# SWITCH SCHEDE
+# SCHEDE
 # -----------------------
 schede = supabase.table("schede") \
-    .select("id,nome") \
+    .select("*") \
     .eq("utente_id", user_id) \
     .execute().data
 
-if schede:
-    scheda_sel = st.sidebar.selectbox(
-        "📋 Scheda",
-        schede,
-        format_func=lambda x: x["nome"]
-    )
-
-    if st.sidebar.button("Attiva"):
-        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
-        supabase.table("schede").update({"attiva": True}).eq("id", scheda_sel["id"]).execute()
-        st.rerun()
-
-# -----------------------
-# CARICA SCHEDA ATTIVA
-# -----------------------
-res = supabase.table("schede") \
-    .select("*") \
-    .eq("utente_id", user_id) \
-    .eq("attiva", True) \
-    .execute()
-
-if not res.data:
+if not schede:
     st.warning("Carica una scheda")
     st.stop()
 
-df = pd.DataFrame(res.data[0]["dati"])
-
-# -----------------------
-# NAVIGAZIONE (SIDEBAR)
-# -----------------------
-st.sidebar.header("Navigazione")
-
-settimana = st.sidebar.selectbox(
-    "Settimana",
-    sorted(df["Settimana"].dropna().unique())
+scheda_sel = st.sidebar.selectbox(
+    "Scheda",
+    schede,
+    format_func=lambda x: x["nome"]
 )
 
-giorno = st.sidebar.selectbox(
-    "Giorno",
-    sorted(df[df["Settimana"] == settimana]["Giorno"].dropna().unique())
-)
+scheda_id = scheda_sel["id"]
+
+df = pd.DataFrame(scheda_sel["dati"])
+
+# -----------------------
+# NAVIGAZIONE
+# -----------------------
+settimana = st.sidebar.selectbox("Settimana", df["Settimana"].unique())
+giorno = st.sidebar.selectbox("Giorno", df["Giorno"].unique())
 
 filtered = df[
     (df["Settimana"] == settimana) &
@@ -142,17 +81,18 @@ filtered = df[
 ]
 
 # -----------------------
-# CARICA DATI SALVATI
+# WORKOUT CARICATI
 # -----------------------
 workouts = supabase.table("workouts") \
     .select("*") \
     .eq("utente_id", user_id) \
+    .eq("scheda_id", scheda_id) \
     .execute().data
 
 df_work = pd.DataFrame(workouts) if workouts else pd.DataFrame()
 
 # -----------------------
-# SESSIONE
+# SESSION
 # -----------------------
 if "allenamento" not in st.session_state:
     st.session_state.allenamento = {}
@@ -160,7 +100,7 @@ if "allenamento" not in st.session_state:
 allenamento = st.session_state.allenamento
 
 # -----------------------
-# UI ESERCIZI
+# UI
 # -----------------------
 for idx, row in filtered.iterrows():
 
@@ -197,7 +137,7 @@ for idx, row in filtered.iterrows():
     st.markdown("---")
 
 # -----------------------
-# SALVA ALLENAMENTO
+# SALVA
 # -----------------------
 if st.button("💾 Salva Allenamento"):
 
@@ -208,6 +148,7 @@ if st.button("💾 Salva Allenamento"):
             existing = supabase.table("workouts") \
                 .select("*") \
                 .eq("utente_id", user_id) \
+                .eq("scheda_id", scheda_id) \
                 .eq("esercizio", val["esercizio"]) \
                 .eq("serie", val["serie"]) \
                 .execute()
@@ -221,6 +162,7 @@ if st.button("💾 Salva Allenamento"):
             else:
                 supabase.table("workouts").insert({
                     "utente_id": user_id,
+                    "scheda_id": scheda_id,
                     "esercizio": val["esercizio"],
                     "serie": val["serie"],
                     "settimana": val["settimana"],
@@ -231,18 +173,3 @@ if st.button("💾 Salva Allenamento"):
                 }).execute()
 
     st.success("Allenamento salvato 🔥")
-
-# -----------------------
-# EXPORT EXCEL
-# -----------------------
-st.subheader("📥 Esporta Scheda")
-
-buffer = BytesIO()
-df.to_excel(buffer, index=False)
-buffer.seek(0)
-
-st.download_button(
-    "⬇️ Scarica Excel",
-    buffer,
-    f"Scheda_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
-)
