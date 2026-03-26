@@ -3,46 +3,28 @@ import pandas as pd
 from io import BytesIO
 from datetime import datetime
 from supabase import create_client
+import json
 
 # -----------------------
-# CONFIG MOBILE APP STYLE
+# CONFIG APP
 # -----------------------
 st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
 
-# 🔥 MIGLIORIA MOBILE
-st.markdown(
-    """
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-    /* bottoni più grandi */
-    div.stButton > button {
-        width: 100%;
-        height: 50px;
-        font-size: 18px;
-        border-radius: 10px;
-    }
-
-    /* input più grandi */
-    input {
-        font-size: 18px !important;
-    }
-
-    /* checkbox più grandi */
-    div[data-baseweb="checkbox"] {
-        transform: scale(1.3);
-    }
-
-    /* padding mobile */
-    .block-container {
-        padding-top: 1rem;
-        padding-bottom: 2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+# 🔥 MOBILE + LOCAL STORAGE
+st.markdown("""
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+function saveUser(user){
+    localStorage.setItem("user", JSON.stringify(user));
+}
+function loadUser(){
+    return localStorage.getItem("user");
+}
+function clearUser(){
+    localStorage.removeItem("user");
+}
+</script>
+""", unsafe_allow_html=True)
 
 st.title("🏋️ Scheda Allenamento")
 
@@ -72,31 +54,73 @@ def safe_float(val, default=0.0):
     except:
         return default
 
-def safe_str(val):
-    if pd.isna(val):
-        return ""
-    return str(val)
-
 # -----------------------
-# LOGIN
+# LOGIN AUTO
 # -----------------------
 if "user" not in st.session_state:
+
+    # prova recupero da localStorage
+    user_js = st.components.v1.html("""
+        <script>
+        const user = localStorage.getItem("user");
+        if(user){
+            window.parent.postMessage({type: "USER", value: user}, "*");
+        }
+        </script>
+    """, height=0)
+
     st.subheader("🔐 Login")
 
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        user = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        st.session_state.user = user
-        st.rerun()
+
+        try:
+            user = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+
+            st.session_state.user = user
+
+            # 🔥 salva in localStorage
+            st.components.v1.html(f"""
+            <script>
+            localStorage.setItem("user", JSON.stringify({json.dumps(user.session)}));
+            </script>
+            """, height=0)
+
+            st.success("Login OK")
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"Errore login: {e}")
 
     st.stop()
 
-user_id = st.session_state.user.user.id
+# -----------------------
+# UTENTE LOGGATO
+# -----------------------
+user = st.session_state.user
+user_id = user.user.id
+
+st.success("👤 Loggato")
+
+# -----------------------
+# LOGOUT
+# -----------------------
+if st.sidebar.button("🚪 Logout"):
+
+    st.session_state.clear()
+
+    st.components.v1.html("""
+    <script>
+    localStorage.removeItem("user");
+    </script>
+    """, height=0)
+
+    st.rerun()
 
 # -----------------------
 # UPLOAD SCHEDA
@@ -138,7 +162,7 @@ scheda_id = scheda_sel["id"]
 df = pd.DataFrame(scheda_sel["dati"])
 
 # -----------------------
-# NAVIGAZIONE MOBILE
+# NAVIGAZIONE
 # -----------------------
 col1, col2 = st.columns(2)
 
@@ -154,18 +178,7 @@ filtered = df[
 ]
 
 # -----------------------
-# WORKOUT SALVATI
-# -----------------------
-workouts = supabase.table("workouts") \
-    .select("*") \
-    .eq("utente_id", user_id) \
-    .eq("scheda_id", scheda_id) \
-    .execute().data
-
-df_work = pd.DataFrame(workouts) if workouts else pd.DataFrame()
-
-# -----------------------
-# UI ESERCIZI MOBILE
+# UI
 # -----------------------
 for idx, row in filtered.iterrows():
 
@@ -175,27 +188,15 @@ for idx, row in filtered.iterrows():
         f"🎯 {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg"
     )
 
-    if safe_str(row["Note Coach"]):
-        st.info(f"🧠 {row['Note Coach']}")
+    if row["Note Coach"]:
+        st.info(row["Note Coach"])
 
-    st.caption(f"⏱ Recupero: {safe_int(row['Recupero (sec)'])} sec")
+    reps = st.number_input("Reps", key=f"r{idx}")
+    carico = st.number_input("Kg", key=f"c{idx}")
+    rpe = st.number_input("RPE", value=6, key=f"p{idx}")
 
-    saved = df_work[
-        (df_work["esercizio"] == row["Esercizio"]) &
-        (df_work["serie"] == row["Serie"])
-    ] if not df_work.empty else pd.DataFrame()
+    if st.button("✔ Salva", key=f"s{idx}"):
 
-    reps_default = safe_int(saved["reps"].iloc[0]) if not saved.empty else 0
-    carico_default = safe_float(saved["carico"].iloc[0]) if not saved.empty else 0
-    rpe_default = safe_int(saved["rpe"].iloc[0], 6) if not saved.empty else 6
-
-    reps = st.number_input("Reps", value=reps_default, key=f"r{idx}")
-    carico = st.number_input("Kg", value=carico_default, key=f"c{idx}")
-    rpe = st.number_input("RPE", value=rpe_default, key=f"p{idx}")
-
-    done = st.checkbox("✔ Completata", key=f"d{idx}")
-
-    if done:
         supabase.table("workouts").insert({
             "utente_id": user_id,
             "scheda_id": scheda_id,
@@ -209,8 +210,6 @@ for idx, row in filtered.iterrows():
         }).execute()
 
         st.success("Salvato 💪")
-
-    st.divider()
 
 # -----------------------
 # EXPORT
