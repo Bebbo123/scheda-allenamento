@@ -5,22 +5,16 @@ from io import BytesIO
 from datetime import datetime
 from supabase import create_client
 
-# -----------------------
 # CONFIG
-# -----------------------
 st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
 st.title("🏋️ Scheda Allenamento")
 
-# -----------------------
 # SUPABASE
-# -----------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# -----------------------
-# SAFE FUNCTIONS SUPER ROBUSTE
-# -----------------------
+# SAFE FUNCTIONS
 def safe_int(val, default=0):
     try:
         if val in ["", None]:
@@ -37,9 +31,7 @@ def safe_float(val, default=0.0):
     except:
         return default
 
-# -----------------------
 # LOGIN
-# -----------------------
 st.subheader("🔐 Login")
 
 if "user" not in st.session_state:
@@ -53,7 +45,6 @@ if "user" not in st.session_state:
                 "password": password
             })
             st.session_state.user = user
-            st.success("Login effettuato")
             st.rerun()
         except Exception as e:
             st.error(f"Errore login: {e}")
@@ -61,64 +52,8 @@ if "user" not in st.session_state:
     st.stop()
 
 user_id = st.session_state.user.user.id
-st.success("👤 Loggato")
 
-# -----------------------
-# GESTIONE SCHEDE
-# -----------------------
-st.subheader("📂 Gestione Schede")
-
-uploaded_file = st.file_uploader("Carica nuova scheda Excel", type=["xlsx"])
-
-if uploaded_file:
-    df_new = pd.read_excel(uploaded_file)
-
-    if st.button("💾 Salva nuova scheda"):
-
-        try:
-            clean_df = df_new.fillna("")
-
-            supabase.table("schede") \
-                .update({"attiva": False}) \
-                .eq("utente_id", user_id) \
-                .execute()
-
-            res_insert = supabase.table("schede").insert({
-                "nome": uploaded_file.name,
-                "dati": clean_df.to_dict(),
-                "attiva": True,
-                "utente_id": user_id
-            }).execute()
-
-            st.success("✅ Scheda salvata!")
-            st.rerun()
-
-        except Exception as e:
-            st.error(f"❌ Errore salvataggio: {e}")
-
-# -----------------------
-# SWITCH SCHEDE
-# -----------------------
-schede = supabase.table("schede") \
-    .select("id,nome") \
-    .eq("utente_id", user_id) \
-    .execute().data
-
-if schede:
-    scheda_sel = st.sidebar.selectbox(
-        "📋 Schede",
-        schede,
-        format_func=lambda x: x["nome"]
-    )
-
-    if st.sidebar.button("Attiva scheda"):
-        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
-        supabase.table("schede").update({"attiva": True}).eq("id", scheda_sel["id"]).execute()
-        st.rerun()
-
-# -----------------------
-# CARICA SCHEDA ATTIVA
-# -----------------------
+# CARICA SCHEDA
 res = supabase.table("schede") \
     .select("*") \
     .eq("utente_id", user_id) \
@@ -132,33 +67,9 @@ if not res.data:
 df = pd.DataFrame(res.data[0]["dati"])
 st.session_state.data = df.copy()
 
-# -----------------------
-# TIMER
-# -----------------------
-if "timer" not in st.session_state:
-    st.session_state.timer = {"active": False, "start": 0, "duration": 0, "exercise": ""}
-
 data = st.session_state.data
-timer = st.session_state.timer
 
-if timer["active"]:
-    elapsed = time.time() - timer["start"]
-    remaining = int(timer["duration"] - elapsed)
-
-    if remaining > 0:
-        st.warning(f"⏳ {timer['exercise']} - {remaining}s")
-        st.progress(elapsed / timer["duration"])
-        time.sleep(1)
-        st.rerun()
-    else:
-        st.success("✅ Recupero finito!")
-        timer["active"] = False
-
-# -----------------------
 # NAVIGAZIONE
-# -----------------------
-st.sidebar.header("Navigazione")
-
 settimana = st.sidebar.selectbox("Settimana", sorted(data["Settimana"].dropna().unique()))
 giorno = st.sidebar.selectbox(
     "Giorno",
@@ -170,35 +81,16 @@ filtered = data[
     (data["Giorno"] == giorno)
 ]
 
-# -----------------------
-# UI ESERCIZI
-# -----------------------
+# UI
 for esercizio in filtered["Esercizio"].unique():
 
     blocco = filtered[filtered["Esercizio"] == esercizio]
-    recupero = safe_int(blocco["Recupero (sec)"].iloc[0])
 
     with st.expander(f"🏋️ {esercizio}"):
 
-        note_coach = blocco["Note Coach"].dropna()
-        if not note_coach.empty:
-            st.info(note_coach.iloc[0])
-
-        st.write(f"⏱ Recupero: {recupero}s")
-
-        if st.button("▶️ Timer", key=f"timer_{esercizio}"):
-            st.session_state.timer = {
-                "active": True,
-                "start": time.time(),
-                "duration": recupero,
-                "exercise": esercizio
-            }
-            st.rerun()
-
         for idx, row in blocco.iterrows():
 
-            st.markdown(f"### 🔹 Serie {safe_int(row['Serie'])}")
-            st.caption(f"🎯 {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg")
+            st.markdown(f"### Serie {safe_int(row['Serie'])}")
 
             reps = st.number_input("Reps", value=safe_int(row["Reps Effettive"]), key=f"r{idx}")
             carico = st.number_input("Kg", value=safe_float(row["Carico"]), key=f"c{idx}")
@@ -207,32 +99,30 @@ for esercizio in filtered["Esercizio"].unique():
             done = st.checkbox("✔ Completata", key=f"d{idx}")
 
             if done:
-                supabase.table("workouts").insert({
-                    "utente_id": user_id,
-                    "esercizio": esercizio,
-                    "settimana": safe_int(row["Settimana"]),
-                    "giorno": row["Giorno"],
-                    "serie": safe_int(row["Serie"]),
-                    "carico": float(carico),
-                    "reps": int(reps),
-                    "rpe": int(rpe),
-                    "carico_target": safe_float(row["Carico Target"])
-                }).execute()
 
-                st.success("☁️ Salvato")
+                try:
+                    supabase.table("workouts").insert({
+                        "utente_id": user_id,
+                        "esercizio": esercizio,
+                        "settimana": safe_int(row["Settimana"]),
+                        "giorno": row["Giorno"],
+                        "serie": safe_int(row["Serie"]),
+                        "carico": float(carico),
+                        "reps": int(reps),
+                        "rpe": int(rpe),
+                        "carico_target": safe_float(row["Carico Target"])
+                    }).execute()
+
+                    st.success("☁️ Salvato!")
+
+                except Exception as e:
+                    st.error(f"Errore salvataggio: {e}")
 
             st.markdown("---")
 
-# -----------------------
 # EXPORT
-# -----------------------
-st.subheader("📥 Esporta")
-
-oggi = datetime.now().strftime("%d-%m-%Y")
-nome_file = f"Scheda al {oggi}.xlsx"
-
 buffer = BytesIO()
 data.to_excel(buffer, index=False)
 buffer.seek(0)
 
-st.download_button("⬇️ Esporta", buffer, nome_file)
+st.download_button("⬇️ Esporta", buffer, f"Scheda_{datetime.now().strftime('%d-%m-%Y')}.xlsx")
