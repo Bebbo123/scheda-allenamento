@@ -9,19 +9,17 @@ from supabase import create_client
 # CONFIG
 # -----------------------
 st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
-
 st.title("🏋️ Scheda Allenamento")
 
 # -----------------------
-# SUPABASE (SECRETS)
+# SUPABASE
 # -----------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # -----------------------
-# SAFE FUNCTIONS (ANTI-CRASH)
+# SAFE FUNCTIONS
 # -----------------------
 def safe_int(val, default=0):
     return int(val) if pd.notna(val) else default
@@ -30,19 +28,56 @@ def safe_float(val, default=0.0):
     return float(val) if pd.notna(val) else default
 
 # -----------------------
-# LOAD EXCEL
+# GESTIONE SCHEDE
 # -----------------------
-@st.cache_data
-def load_excel(file):
-    return pd.read_excel(file)
+st.subheader("📂 Gestione Schede")
 
-uploaded_file = st.file_uploader("📂 Carica la tua scheda Excel", type=["xlsx"])
+uploaded_file = st.file_uploader("Carica nuova scheda Excel", type=["xlsx"])
 
-if not uploaded_file:
-    st.info("Carica un file Excel per iniziare")
+if uploaded_file:
+    df_new = pd.read_excel(uploaded_file)
+
+    if st.button("Salva nuova scheda"):
+        # disattiva tutte
+        supabase.table("schede").update({"attiva": False}).neq("id", "").execute()
+
+        # salva nuova
+        supabase.table("schede").insert({
+            "nome": uploaded_file.name,
+            "dati": df_new.to_dict(),
+            "attiva": True
+        }).execute()
+
+        st.success("✅ Scheda salvata e attiva")
+        st.rerun()
+
+# -----------------------
+# SWITCH SCHEDE
+# -----------------------
+schede = supabase.table("schede").select("id,nome").execute().data
+
+if schede:
+    scheda_sel = st.sidebar.selectbox(
+        "Scheda attiva",
+        schede,
+        format_func=lambda x: x["nome"]
+    )
+
+    if st.sidebar.button("Attiva scheda"):
+        supabase.table("schede").update({"attiva": False}).neq("id", "").execute()
+        supabase.table("schede").update({"attiva": True}).eq("id", scheda_sel["id"]).execute()
+        st.rerun()
+
+# -----------------------
+# CARICA SCHEDA ATTIVA
+# -----------------------
+res = supabase.table("schede").select("*").eq("attiva", True).limit(1).execute()
+
+if not res.data:
+    st.warning("Carica una scheda per iniziare")
     st.stop()
 
-df = load_excel(uploaded_file)
+df = pd.DataFrame(res.data[0]["dati"])
 
 # -----------------------
 # VALIDAZIONE
@@ -56,8 +91,7 @@ required_columns = [
 ]
 
 if not all(col in df.columns for col in required_columns):
-    st.error("⚠️ Il file Excel non è corretto")
-    st.write(required_columns)
+    st.error("⚠️ Excel non valido")
     st.stop()
 
 # -----------------------
@@ -67,12 +101,7 @@ if "data" not in st.session_state:
     st.session_state.data = df.copy()
 
 if "timer" not in st.session_state:
-    st.session_state.timer = {
-        "active": False,
-        "start": 0,
-        "duration": 0,
-        "exercise": ""
-    }
+    st.session_state.timer = {"active": False, "start": 0, "duration": 0, "exercise": ""}
 
 data = st.session_state.data
 timer = st.session_state.timer
@@ -82,11 +111,7 @@ timer = st.session_state.timer
 # -----------------------
 st.sidebar.header("Navigazione")
 
-settimana = st.sidebar.selectbox(
-    "Settimana",
-    sorted(data["Settimana"].dropna().unique())
-)
-
+settimana = st.sidebar.selectbox("Settimana", sorted(data["Settimana"].dropna().unique()))
 giorno = st.sidebar.selectbox(
     "Giorno",
     sorted(data[data["Settimana"] == settimana]["Giorno"].dropna().unique())
@@ -129,7 +154,7 @@ for esercizio in filtered["Esercizio"].unique():
 
         st.write(f"⏱ Recupero: {recupero}s")
 
-        if st.button("▶️ Avvia Timer", key=f"timer_{esercizio}"):
+        if st.button("▶️ Timer", key=f"timer_{esercizio}"):
             st.session_state.timer = {
                 "active": True,
                 "start": time.time(),
@@ -143,42 +168,19 @@ for esercizio in filtered["Esercizio"].unique():
             st.markdown(f"### 🔹 Serie {safe_int(row['Serie'])}")
             st.caption(f"🎯 {safe_int(row['Reps Target'])} reps @ {safe_float(row['Carico Target'])} kg")
 
-            reps = st.number_input(
-                "Reps",
-                value=safe_int(row["Reps Effettive"]),
-                key=f"r{idx}"
-            )
+            reps = st.number_input("Reps", value=safe_int(row["Reps Effettive"]), key=f"r{idx}")
+            carico = st.number_input("Kg", value=safe_float(row["Carico"]), key=f"c{idx}")
+            rpe = st.number_input("RPE", min_value=1, max_value=10, value=safe_int(row["RPE"], 6), key=f"p{idx}")
 
-            carico = st.number_input(
-                "Kg",
-                value=safe_float(row["Carico"]),
-                key=f"c{idx}"
-            )
+            done = st.checkbox("✔ Completata", key=f"d{idx}")
 
-            rpe = st.number_input(
-                "RPE",
-                min_value=1,
-                max_value=10,
-                value=safe_int(row["RPE"], 6),
-                key=f"p{idx}"
-            )
-
-            note = st.text_input(
-                "Note",
-                value=str(row["Note Personali"]) if pd.notna(row["Note Personali"]) else "",
-                key=f"note{idx}"
-            )
-
-            done = st.checkbox("✔ Serie completata", key=f"d{idx}")
-
-            # SAVE LOCALE
+            # salva locale
             data.loc[idx, "Reps Effettive"] = reps
             data.loc[idx, "Carico"] = carico
             data.loc[idx, "RPE"] = rpe
-            data.loc[idx, "Note Personali"] = note
             data.loc[idx, "Stato"] = "Completata" if done else ""
 
-            # SAVE CLOUD
+            # salva cloud
             if done:
                 supabase.table("workouts").insert({
                     "esercizio": esercizio,
@@ -191,7 +193,7 @@ for esercizio in filtered["Esercizio"].unique():
                     "carico_target": safe_float(row["Carico Target"])
                 }).execute()
 
-                st.success("☁️ Salvato nel cloud")
+                st.success("☁️ Salvato")
 
             st.markdown("---")
 
@@ -207,12 +209,12 @@ buffer = BytesIO()
 data.to_excel(buffer, index=False)
 buffer.seek(0)
 
-st.download_button("⬇️ Esporta Scheda", buffer, nome_file)
+st.download_button("⬇️ Esporta", buffer, nome_file)
 
 # -----------------------
-# DASHBOARD PRO
+# DASHBOARD
 # -----------------------
-st.subheader("📊 Dashboard Progressi")
+st.subheader("📊 Dashboard")
 
 data_db = supabase.table("workouts").select("*").execute().data
 
@@ -220,56 +222,19 @@ if data_db:
 
     df_db = pd.DataFrame(data_db)
 
-    esercizio_sel = st.selectbox(
-        "Seleziona esercizio",
-        df_db["esercizio"].unique()
-    )
+    esercizio_sel = st.selectbox("Esercizio", df_db["esercizio"].unique())
 
-    if st.button("📈 Mostra Dashboard"):
+    if st.button("📈 Mostra"):
 
-        df_es = df_db[df_db["esercizio"] == esercizio_sel].sort_values("settimana")
+        df_es = df_db[df_db["esercizio"] == esercizio_sel]
 
-        st.markdown("## 📊 Analisi")
-
-        # CARICO
-        st.markdown("### 🏋️ Carico medio")
         st.line_chart(df_es.groupby("settimana")["carico"].mean())
-
-        # REPS
-        st.markdown("### 🔢 Reps medie")
         st.line_chart(df_es.groupby("settimana")["reps"].mean())
-
-        # RPE
-        st.markdown("### 🔥 RPE medio")
         st.line_chart(df_es.groupby("settimana")["rpe"].mean())
 
-        # SERIE
-        st.markdown("### 📊 Carico per serie")
-        st.line_chart(df_es.groupby(["settimana", "serie"])["carico"].mean().unstack())
-
-        # TARGET vs REALE
         if "carico_target" in df_es.columns:
-
-            st.markdown("### 🎯 Target vs Reale")
-
             confronto = df_es.groupby("settimana")[["carico", "carico_target"]].mean()
             st.line_chart(confronto)
 
-            last = confronto.iloc[-1]
-
-            if last["carico"] >= last["carico_target"]:
-                st.success("🔥 Sopra target!")
-            else:
-                st.warning("📈 Sotto target")
-
-        # BEST SET
-        st.markdown("### 🏆 Best Set")
-
-        best = df_es.sort_values("carico", ascending=False).iloc[0]
-
-        st.success(
-            f"{best['carico']} kg x {best['reps']} reps (RPE {best['rpe']})"
-        )
-
 else:
-    st.info("Nessun dato salvato")
+    st.info("Nessun dato")
