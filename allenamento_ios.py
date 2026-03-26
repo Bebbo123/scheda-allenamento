@@ -45,12 +45,14 @@ if "user" not in st.session_state:
             st.session_state.user = user
             st.success("Login effettuato")
             st.rerun()
-        except:
-            st.error("Errore login")
+        except Exception as e:
+            st.error(f"Errore login: {e}")
 
     st.stop()
 
 user_id = st.session_state.user.user.id
+
+st.success(f"👤 Loggato")
 
 # -----------------------
 # GESTIONE SCHEDE
@@ -62,20 +64,32 @@ uploaded_file = st.file_uploader("Carica nuova scheda Excel", type=["xlsx"])
 if uploaded_file:
     df_new = pd.read_excel(uploaded_file)
 
-    if st.button("Salva nuova scheda"):
-        # disattiva tutte le schede dell'utente
-        supabase.table("schede").update({"attiva": False}).eq("utente_id", user_id).execute()
+    if st.button("💾 Salva nuova scheda"):
 
-        # salva nuova scheda
-        supabase.table("schede").insert({
-            "nome": uploaded_file.name,
-            "dati": df_new.to_dict(),
-            "attiva": True,
-            "utente_id": user_id
-        }).execute()
+        try:
+            # disattiva vecchie
+            supabase.table("schede") \
+                .update({"attiva": False}) \
+                .eq("utente_id", user_id) \
+                .execute()
 
-        st.success("✅ Scheda salvata e attiva")
-        st.rerun()
+            # inserisci nuova
+            res_insert = supabase.table("schede").insert({
+                "nome": uploaded_file.name,
+                "dati": df_new.to_dict(),
+                "attiva": True,
+                "utente_id": user_id
+            }).execute()
+
+            st.success("✅ Scheda salvata!")
+
+            # DEBUG
+            st.write("DEBUG INSERT:", res_insert.data)
+
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ Errore salvataggio: {e}")
 
 # -----------------------
 # SWITCH SCHEDE
@@ -87,7 +101,7 @@ schede = supabase.table("schede") \
 
 if schede:
     scheda_sel = st.sidebar.selectbox(
-        "Scheda attiva",
+        "📋 Schede",
         schede,
         format_func=lambda x: x["nome"]
     )
@@ -102,18 +116,18 @@ if schede:
 # -----------------------
 res = supabase.table("schede") \
     .select("*") \
-    .eq("attiva", True) \
     .eq("utente_id", user_id) \
-    .limit(1) \
+    .eq("attiva", True) \
     .execute()
 
+# DEBUG
+st.write("DEBUG SCHEDE:", res.data)
+
 if not res.data:
-    st.warning("Carica una scheda per iniziare")
+    st.warning("⚠️ Nessuna scheda trovata — salva una scheda sopra")
     st.stop()
 
 df = pd.DataFrame(res.data[0]["dati"])
-
-# aggiorna session state
 st.session_state.data = df.copy()
 
 # -----------------------
@@ -132,7 +146,7 @@ if not all(col in df.columns for col in required_columns):
     st.stop()
 
 # -----------------------
-# STATE
+# TIMER STATE
 # -----------------------
 if "timer" not in st.session_state:
     st.session_state.timer = {"active": False, "start": 0, "duration": 0, "exercise": ""}
@@ -206,22 +220,8 @@ for esercizio in filtered["Esercizio"].unique():
             carico = st.number_input("Kg", value=safe_float(row["Carico"]), key=f"c{idx}")
             rpe = st.number_input("RPE", min_value=1, max_value=10, value=safe_int(row["RPE"], 6), key=f"p{idx}")
 
-            note = st.text_input(
-                "Note",
-                value=str(row["Note Personali"]) if pd.notna(row["Note Personali"]) else "",
-                key=f"note{idx}"
-            )
-
             done = st.checkbox("✔ Completata", key=f"d{idx}")
 
-            # salva locale
-            data.loc[idx, "Reps Effettive"] = reps
-            data.loc[idx, "Carico"] = carico
-            data.loc[idx, "RPE"] = rpe
-            data.loc[idx, "Note Personali"] = note
-            data.loc[idx, "Stato"] = "Completata" if done else ""
-
-            # salva cloud
             if done:
                 supabase.table("workouts").insert({
                     "utente_id": user_id,
@@ -252,34 +252,3 @@ data.to_excel(buffer, index=False)
 buffer.seek(0)
 
 st.download_button("⬇️ Esporta", buffer, nome_file)
-
-# -----------------------
-# DASHBOARD
-# -----------------------
-st.subheader("📊 Dashboard")
-
-data_db = supabase.table("workouts") \
-    .select("*") \
-    .eq("utente_id", user_id) \
-    .execute().data
-
-if data_db:
-
-    df_db = pd.DataFrame(data_db)
-
-    esercizio_sel = st.selectbox("Esercizio", df_db["esercizio"].unique())
-
-    if st.button("📈 Mostra"):
-
-        df_es = df_db[df_db["esercizio"] == esercizio_sel]
-
-        st.line_chart(df_es.groupby("settimana")["carico"].mean())
-        st.line_chart(df_es.groupby("settimana")["reps"].mean())
-        st.line_chart(df_es.groupby("settimana")["rpe"].mean())
-
-        if "carico_target" in df_es.columns:
-            confronto = df_es.groupby("settimana")[["carico", "carico_target"]].mean()
-            st.line_chart(confronto)
-
-else:
-    st.info("Nessun dato")
