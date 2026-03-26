@@ -30,8 +30,11 @@ def safe_float(val, default=0.0):
     except:
         return default
 
+# -----------------------
 # LOGIN
+# -----------------------
 if "user" not in st.session_state:
+    st.subheader("🔐 Login")
     email = st.text_input("Email")
     password = st.text_input("Password", type="password")
 
@@ -48,7 +51,29 @@ if "user" not in st.session_state:
 user_id = st.session_state.user.user.id
 
 # -----------------------
-# SCHEDE
+# UPLOAD SCHEDA
+# -----------------------
+st.subheader("📂 Carica Scheda")
+
+uploaded_file = st.file_uploader("Carica Excel", type=["xlsx"])
+
+if uploaded_file:
+    df_new = pd.read_excel(uploaded_file)
+
+    if st.button("💾 Salva Scheda"):
+        clean_df = df_new.fillna("")
+
+        supabase.table("schede").insert({
+            "nome": uploaded_file.name,
+            "dati": clean_df.to_dict(),
+            "utente_id": user_id
+        }).execute()
+
+        st.success("Scheda salvata!")
+        st.rerun()
+
+# -----------------------
+# SCHEDE LISTA
 # -----------------------
 schede = supabase.table("schede") \
     .select("*") \
@@ -59,19 +84,49 @@ if not schede:
     st.warning("Carica una scheda")
     st.stop()
 
+# -----------------------
+# SIDEBAR
+# -----------------------
+st.sidebar.header("📋 Gestione Schede")
+
 scheda_sel = st.sidebar.selectbox(
-    "Scheda",
+    "Seleziona scheda",
     schede,
     format_func=lambda x: x["nome"]
 )
 
 scheda_id = scheda_sel["id"]
 
+# -----------------------
+# ELIMINA SCHEDA
+# -----------------------
+if st.sidebar.button("🗑️ Elimina scheda"):
+
+    # elimina anche i workout collegati
+    supabase.table("workouts") \
+        .delete() \
+        .eq("scheda_id", scheda_id) \
+        .execute()
+
+    # elimina scheda
+    supabase.table("schede") \
+        .delete() \
+        .eq("id", scheda_id) \
+        .execute()
+
+    st.sidebar.success("Scheda eliminata")
+    st.rerun()
+
+# -----------------------
+# CARICA SCHEDA
+# -----------------------
 df = pd.DataFrame(scheda_sel["dati"])
 
 # -----------------------
 # NAVIGAZIONE
 # -----------------------
+st.sidebar.header("Navigazione")
+
 settimana = st.sidebar.selectbox("Settimana", df["Settimana"].unique())
 giorno = st.sidebar.selectbox("Giorno", df["Giorno"].unique())
 
@@ -81,7 +136,7 @@ filtered = df[
 ]
 
 # -----------------------
-# WORKOUT CARICATI
+# WORKOUT
 # -----------------------
 workouts = supabase.table("workouts") \
     .select("*") \
@@ -100,7 +155,7 @@ if "allenamento" not in st.session_state:
 allenamento = st.session_state.allenamento
 
 # -----------------------
-# UI
+# UI ESERCIZI
 # -----------------------
 for idx, row in filtered.iterrows():
 
@@ -137,7 +192,7 @@ for idx, row in filtered.iterrows():
     st.markdown("---")
 
 # -----------------------
-# SALVA
+# SALVA ALLENAMENTO
 # -----------------------
 if st.button("💾 Salva Allenamento"):
 
@@ -173,3 +228,18 @@ if st.button("💾 Salva Allenamento"):
                 }).execute()
 
     st.success("Allenamento salvato 🔥")
+
+# -----------------------
+# EXPORT
+# -----------------------
+st.subheader("📥 Esporta")
+
+buffer = BytesIO()
+df.to_excel(buffer, index=False)
+buffer.seek(0)
+
+st.download_button(
+    "⬇️ Scarica Excel",
+    buffer,
+    f"Scheda_{datetime.now().strftime('%d-%m-%Y')}.xlsx"
+)
