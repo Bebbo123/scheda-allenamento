@@ -4,16 +4,22 @@ from io import BytesIO
 from datetime import datetime
 from supabase import create_client
 
+# -----------------------
 # CONFIG
-st.set_page_config(page_title="Scheda Allenamento", layout="centered")
+# -----------------------
+st.set_page_config(page_title="Scheda Allenamento", page_icon="🏋️", layout="centered")
 st.title("🏋️ Scheda Allenamento")
 
+# -----------------------
 # SUPABASE
+# -----------------------
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# SAFE
+# -----------------------
+# SAFE FUNCTIONS
+# -----------------------
 def safe_int(val, default=0):
     try:
         if val in ["", None]:
@@ -39,12 +45,15 @@ if "user" not in st.session_state:
     password = st.text_input("Password", type="password")
 
     if st.button("Login"):
-        user = supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-        st.session_state.user = user
-        st.rerun()
+        try:
+            user = supabase.auth.sign_in_with_password({
+                "email": email,
+                "password": password
+            })
+            st.session_state.user = user
+            st.rerun()
+        except Exception as e:
+            st.error(f"Errore login: {e}")
 
     st.stop()
 
@@ -102,13 +111,11 @@ scheda_id = scheda_sel["id"]
 # -----------------------
 if st.sidebar.button("🗑️ Elimina scheda"):
 
-    # elimina anche i workout collegati
     supabase.table("workouts") \
         .delete() \
         .eq("scheda_id", scheda_id) \
         .execute()
 
-    # elimina scheda
     supabase.table("schede") \
         .delete() \
         .eq("id", scheda_id) \
@@ -118,17 +125,25 @@ if st.sidebar.button("🗑️ Elimina scheda"):
     st.rerun()
 
 # -----------------------
-# CARICA SCHEDA
+# CARICA SCHEDA (FIX KEYERROR)
 # -----------------------
-df = pd.DataFrame(scheda_sel["dati"])
+df = pd.DataFrame.from_dict(scheda_sel["dati"])
+df = df.reset_index(drop=True)
 
 # -----------------------
 # NAVIGAZIONE
 # -----------------------
 st.sidebar.header("Navigazione")
 
-settimana = st.sidebar.selectbox("Settimana", df["Settimana"].unique())
-giorno = st.sidebar.selectbox("Giorno", df["Giorno"].unique())
+settimana = st.sidebar.selectbox(
+    "Settimana",
+    sorted(df["Settimana"].dropna().unique())
+)
+
+giorno = st.sidebar.selectbox(
+    "Giorno",
+    sorted(df[df["Settimana"] == settimana]["Giorno"].dropna().unique())
+)
 
 filtered = df[
     (df["Settimana"] == settimana) &
@@ -136,7 +151,7 @@ filtered = df[
 ]
 
 # -----------------------
-# WORKOUT
+# WORKOUT CARICATI
 # -----------------------
 workouts = supabase.table("workouts") \
     .select("*") \
@@ -230,9 +245,9 @@ if st.button("💾 Salva Allenamento"):
     st.success("Allenamento salvato 🔥")
 
 # -----------------------
-# EXPORT
+# EXPORT EXCEL
 # -----------------------
-st.subheader("📥 Esporta")
+st.subheader("📥 Esporta Scheda")
 
 buffer = BytesIO()
 df.to_excel(buffer, index=False)
